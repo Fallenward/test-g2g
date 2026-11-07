@@ -1,0 +1,47 @@
+* text=auto eol=lf
+
+*.blade.php diff=html
+*.css diff=css
+*.html diff=html
+*.md diff=markdown
+*.php diff=php
+
+/.github export-ignore
+CHANGELOG.md export-ignore
+.styleci.yml export-ignore
+
+# Laravel
+/.phpunit.cache
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/vendor
+.env
+.env.backup
+.env.production
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+
+# Database files (regenerable; tests use :memory:)
+/database/*.sqlite
+/database/*.sqlite-journal
+
+# Coverage / build artifacts
+/coverage
+/clover.xml
+/junit.xml
+
+# OS junk
+.DS_Store
+Thumbs.db
