@@ -6,7 +6,9 @@ use App\Domain\Exceptions\UnbalancedJournal;
 use App\Domain\Ledger\Ledger;
 use App\Domain\Ledger\LedgerLine;
 use App\Domain\Ledger\Money;
+use App\Models\LedgerAccount;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -91,6 +93,25 @@ class LedgerTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $entry->update(['amount_minor' => 999]);
+    }
+
+    public function test_second_platform_account_with_null_owner_is_rejected(): void
+    {
+        LedgerAccount::create([
+            'owner_type' => 'platform',
+            'owner_id' => null,
+            'code' => 'revenue',
+            'currency' => 'USD',
+        ]);
+
+        $this->expectException(UniqueConstraintViolationException::class);
+
+        LedgerAccount::create([
+            'owner_type' => 'platform',
+            'owner_id' => null,
+            'code' => 'revenue',
+            'currency' => 'USD',
+        ]);
     }
 
     public function test_entry_delete_rejected(): void

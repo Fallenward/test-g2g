@@ -6,8 +6,8 @@ use App\Domain\Exceptions\InsufficientStock;
 use App\Domain\Ledger\LedgerContract;
 use App\Domain\Ledger\LedgerLine;
 use App\Domain\Ledger\Money;
-use App\Models\Listing;
 use App\Models\LedgerJournal;
+use App\Models\Listing;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\Artisan;
@@ -39,27 +39,27 @@ class PurchaseRaceMysqlTest extends TestCase
         /** @var LedgerContract $ledger */
         $ledger = app(LedgerContract::class);
 
-        $seller   = User::factory()->create();
+        $seller = User::factory()->create();
         $buyerIds = [];
 
         foreach (range(1, 3) as $_) {
-            $buyer      = User::factory()->create();
+            $buyer = User::factory()->create();
             $buyerIds[] = $buyer->id;
 
             $available = $ledger->account('user', $buyer->id, 'available', 'USD');
-            $opening   = $ledger->account('platform', null, 'opening', 'USD');
+            $opening = $ledger->account('platform', null, 'opening', 'USD');
 
             $ledger->post('opening', [
-                LedgerLine::debit($available,  Money::of(10_000, 'USD')),
-                LedgerLine::credit($opening,   Money::of(10_000, 'USD')),
+                LedgerLine::debit($available, Money::of(10_000, 'USD')),
+                LedgerLine::credit($opening, Money::of(10_000, 'USD')),
             ], 'race-fund:'.$buyer->id.':'.uniqid());
         }
 
         $listing = Listing::factory()->create([
-            'seller_id'          => $seller->id,
-            'unit_price_minor'   => 5_000,
+            'seller_id' => $seller->id,
+            'unit_price_minor' => 5_000,
             'quantity_available' => 1,
-            'currency'           => 'USD',
+            'currency' => 'USD',
         ]);
 
         $processes = [];
@@ -75,7 +75,7 @@ class PurchaseRaceMysqlTest extends TestCase
             ]);
             $process->setEnv([
                 'RACE_DB_CONNECTION' => $connection,
-                'APP_ENV'            => 'testing',
+                'APP_ENV' => 'testing',
             ]);
             $process->setTimeout(30);
             $process->start();
@@ -93,10 +93,10 @@ class PurchaseRaceMysqlTest extends TestCase
         }
 
         $successes = array_filter($results, fn (string $l) => str_starts_with($l, 'OK'));
-        $failures  = array_filter($results, fn (string $l) => str_starts_with($l, 'FAIL'));
+        $failures = array_filter($results, fn (string $l) => str_starts_with($l, 'FAIL'));
 
         $this->assertCount(1, $successes, 'Expected exactly one successful purchase. Output: '.implode(' | ', $results));
-        $this->assertCount(2, $failures,  'Expected exactly two rejections. Output: '.implode(' | ', $results));
+        $this->assertCount(2, $failures, 'Expected exactly two rejections. Output: '.implode(' | ', $results));
 
         foreach ($failures as $line) {
             $this->assertStringContainsString(
@@ -123,7 +123,7 @@ class PurchaseRaceMysqlTest extends TestCase
         foreach ($buyerIds as $buyerId) {
             $wallet = $ledger->walletFor($buyerId, 'USD');
             $this->assertGreaterThanOrEqual(0, $wallet['available'], "Buyer {$buyerId} available went negative.");
-            $this->assertGreaterThanOrEqual(0, $wallet['escrow'],    "Buyer {$buyerId} escrow went negative.");
+            $this->assertGreaterThanOrEqual(0, $wallet['escrow'], "Buyer {$buyerId} escrow went negative.");
         }
     }
 
@@ -165,17 +165,20 @@ class PurchaseRaceMysqlTest extends TestCase
     {
         try {
             DB::connection($connection)->getPdo();
+
             return true;
         } catch (\Throwable $e) {
             if ($this->isUnknownDatabase($e) && $this->tryCreateDatabase($connection)) {
                 try {
-                    DB::connection($connection)->purge();
+                    DB::purge($connection);
                     DB::connection($connection)->getPdo();
+
                     return true;
                 } catch (\Throwable) {
                     return false;
                 }
             }
+
             return false;
         }
     }
@@ -183,6 +186,7 @@ class PurchaseRaceMysqlTest extends TestCase
     private function isUnknownDatabase(\Throwable $e): bool
     {
         $msg = $e->getMessage();
+
         return str_contains($msg, 'Unknown database')
             || str_contains($msg, 'does not exist')
             || str_contains($msg, 'database "');  // postgres phrasing
@@ -203,6 +207,7 @@ class PurchaseRaceMysqlTest extends TestCase
                 $dsn = "mysql:host={$config['host']};port={$config['port']}";
                 $pdo = new \PDO($dsn, $config['username'], $config['password'], [\PDO::ATTR_TIMEOUT => 2]);
                 $pdo->exec("CREATE DATABASE IF NOT EXISTS `{$dbName}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+
                 return true;
             }
 
@@ -210,6 +215,7 @@ class PurchaseRaceMysqlTest extends TestCase
                 $dsn = "pgsql:host={$config['host']};port={$config['port']};dbname=postgres";
                 $pdo = new \PDO($dsn, $config['username'], $config['password'], [\PDO::ATTR_TIMEOUT => 2]);
                 $pdo->exec("CREATE DATABASE \"{$dbName}\"");
+
                 return true;
             }
         } catch (\Throwable) {
