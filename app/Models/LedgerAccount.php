@@ -19,14 +19,14 @@ class LedgerAccount extends Model
 
     protected static function booted(): void
     {
-        static::creating(function (LedgerAccount $account): void {
+        static::saving(function (LedgerAccount $account): void {
             $account->owner_key = $account->ownerKey();
         });
     }
 
     /**
-     * Stable identity for the unique index. A null owner_id (platform
-     * accounts) is stored as 0 so MySQL and SQLite cannot insert duplicates.
+     * Identity stored in owner_key. Null owners use 0. The database trigger
+     * uses the same string; SQLite cannot assign NEW columns, so the model sets it.
      */
     public function ownerKey(): string
     {

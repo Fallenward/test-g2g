@@ -7,7 +7,9 @@ use App\Domain\Exceptions\UnbalancedJournal;
 use App\Models\LedgerAccount;
 use App\Models\LedgerEntry;
 use App\Models\LedgerJournal;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 final class Ledger implements LedgerContract
 {
@@ -17,12 +19,18 @@ final class Ledger implements LedgerContract
         string $code,
         string $currency
     ): LedgerAccount {
-        return LedgerAccount::firstOrCreate([
+        $attributes = [
             'owner_type' => $ownerType,
             'owner_id' => $ownerId,
             'code' => $code,
             'currency' => strtoupper($currency),
-        ]);
+        ];
+
+        try {
+            return LedgerAccount::firstOrCreate($attributes);
+        } catch (UniqueConstraintViolationException) {
+            return $this->findAccount($ownerType, $ownerId, $code, $currency);
+        }
     }
 
     public function findAccount(
@@ -53,35 +61,42 @@ final class Ledger implements LedgerContract
     ): LedgerJournal {
         $this->assertBalanced($lines);
 
-        $journal = LedgerJournal::create([
-            'type' => $type,
-            'order_id' => $orderId,
-            'idempotency_key' => $idempotencyKey,
-        ]);
+        return DB::transaction(function () use ($type, $lines, $idempotencyKey, $orderId): LedgerJournal {
+            $this->lockAccounts(array_map(
+                static fn (LedgerLine $line): LedgerAccount => $line->account,
+                $lines,
+            ));
 
-        foreach ($lines as $line) {
-            LedgerEntry::create([
-                'journal_id' => $journal->id,
-                'account_id' => $line->account->id,
-                'type' => $line->type,
-                'amount_minor' => $line->money->amountMinor,
+            $journal = LedgerJournal::create([
+                'type' => $type,
+                'order_id' => $orderId,
+                'idempotency_key' => $idempotencyKey,
             ]);
-        }
 
-        return $journal;
+            foreach ($lines as $line) {
+                LedgerEntry::create([
+                    'journal_id' => $journal->id,
+                    'account_id' => $line->account->id,
+                    'type' => $line->type,
+                    'amount_minor' => $line->money->amountMinor,
+                ]);
+            }
+
+            return $journal;
+        });
     }
 
     public function balance(LedgerAccount $account): int
     {
-        $debits = (int) LedgerEntry::where('account_id', $account->id)
-            ->where('type', 'debit')
-            ->sum('amount_minor');
+        $totals = LedgerEntry::query()
+            ->where('account_id', $account->id)
+            ->selectRaw(
+                "coalesce(sum(case when type = 'debit' then amount_minor else 0 end), 0) as debits, ".
+                "coalesce(sum(case when type = 'credit' then amount_minor else 0 end), 0) as credits"
+            )
+            ->first();
 
-        $credits = (int) LedgerEntry::where('account_id', $account->id)
-            ->where('type', 'credit')
-            ->sum('amount_minor');
-
-        return $debits - $credits;
+        return (int) $totals->debits - (int) $totals->credits;
     }
 
     public function walletFor(int $userId, string $currency): array

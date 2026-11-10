@@ -7,9 +7,12 @@ use App\Domain\Ledger\Ledger;
 use App\Domain\Ledger\LedgerLine;
 use App\Domain\Ledger\Money;
 use App\Models\LedgerAccount;
+use App\Models\LedgerEntry;
 use App\Models\User;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class LedgerTest extends TestCase
@@ -129,5 +132,73 @@ class LedgerTest extends TestCase
 
         $this->expectException(\RuntimeException::class);
         $entry->delete();
+    }
+
+    public function test_database_rejects_a_second_platform_account_with_the_same_identity(): void
+    {
+        $row = [
+            'owner_type' => 'platform',
+            'owner_id' => null,
+            'code' => 'revenue',
+            'currency' => 'USD',
+            'owner_key' => 'platform:0:revenue:USD',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+
+        DB::table('ledger_accounts')->insert($row);
+
+        $this->assertSame(
+            'platform:0:revenue:USD',
+            DB::table('ledger_accounts')->where('code', 'revenue')->where('currency', 'USD')->value('owner_key')
+        );
+
+        $this->expectException(UniqueConstraintViolationException::class);
+
+        DB::table('ledger_accounts')->insert($row);
+    }
+
+    public function test_query_builder_cannot_update_a_ledger_entry(): void
+    {
+        $user = User::factory()->create();
+        $available = $this->ledger->account('user', $user->id, 'available', 'USD');
+        $platform = $this->ledger->account('platform', null, 'opening', 'USD');
+
+        $journal = $this->ledger->post('opening', [
+            LedgerLine::debit($available, Money::of(1000, 'USD')),
+            LedgerLine::credit($platform, Money::of(1000, 'USD')),
+        ], 'mut-3');
+
+        $entry = $journal->entries()->first();
+
+        try {
+            LedgerEntry::query()->whereKey($entry->id)->update(['amount_minor' => 1]);
+            $this->fail('Expected the database to reject the update.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('immutable', strtolower($exception->getMessage()));
+        }
+
+        $this->assertSame(1000, $entry->fresh()->amount_minor);
+    }
+
+    public function test_database_rejects_a_non_positive_ledger_entry(): void
+    {
+        $user = User::factory()->create();
+        $available = $this->ledger->account('user', $user->id, 'available', 'USD');
+        $platform = $this->ledger->account('platform', null, 'opening', 'USD');
+
+        $journal = $this->ledger->post('opening', [
+            LedgerLine::debit($available, Money::of(1000, 'USD')),
+            LedgerLine::credit($platform, Money::of(1000, 'USD')),
+        ], 'mut-4');
+
+        $this->expectException(QueryException::class);
+
+        DB::table('ledger_entries')->insert([
+            'journal_id' => $journal->id,
+            'account_id' => $available->id,
+            'type' => 'debit',
+            'amount_minor' => 0,
+        ]);
     }
 }

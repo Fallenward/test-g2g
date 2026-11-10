@@ -13,10 +13,11 @@ final class TransactionRetry
      * on deadlock (SQLSTATE 40001 / MySQL 1213) up to $attempts times.
      *
      * @template T
+     *
      * @param  callable(): T  $work
      * @return T
      */
-    public static function run(callable $work, int $attempts = 3): mixed
+    public function run(callable $work, int $attempts = 3): mixed
     {
         $last = null;
 
@@ -24,7 +25,7 @@ final class TransactionRetry
             try {
                 return DB::transaction($work);
             } catch (Throwable $e) {
-                if (! self::isDeadlock($e)) {
+                if (! $this->isDeadlock($e)) {
                     throw $e;
                 }
 
@@ -38,7 +39,7 @@ final class TransactionRetry
         throw DeadlockException::from($last);
     }
 
-    private static function isDeadlock(Throwable $e): bool
+    private function isDeadlock(Throwable $e): bool
     {
         $message = $e->getMessage();
         $code = $e->getCode();

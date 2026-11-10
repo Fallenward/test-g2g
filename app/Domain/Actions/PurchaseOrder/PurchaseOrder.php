@@ -15,12 +15,15 @@ use Illuminate\Database\UniqueConstraintViolationException;
 
 final class PurchaseOrder
 {
-    public function __construct(private readonly LedgerContract $ledger) {}
+    public function __construct(
+        private readonly LedgerContract $ledger,
+        private readonly TransactionRetry $transactions,
+    ) {}
 
     public function execute(PurchaseOrderData $data): Order
     {
         try {
-            return TransactionRetry::run(function () use ($data) {
+            return $this->transactions->run(function () use ($data) {
                 /** @var Listing $listing */
                 $listing = Listing::whereKey($data->listingId)
                     ->lockForUpdate()
@@ -57,7 +60,7 @@ final class PurchaseOrder
 
                 $listing->decrement('quantity_available', $data->quantity);
 
-                $order = Order::create([
+                $order = new Order([
                     'buyer_id' => $data->buyerId,
                     'seller_id' => $listing->seller_id,
                     'listing_id' => $listing->id,
@@ -67,9 +70,11 @@ final class PurchaseOrder
                     'fee_minor' => 0,
                     'net_minor' => 0,
                     'currency' => $listing->currency,
-                    'status' => OrderStatus::EscrowLocked,
+                    'status' => OrderStatus::Pending,
                     'idempotency_key' => $data->idempotencyKey,
                 ]);
+                $order->transitionTo(OrderStatus::EscrowLocked);
+                $order->save();
 
                 $this->ledger->post(
                     type: 'escrow_lock',
@@ -84,6 +89,10 @@ final class PurchaseOrder
                 return $order;
             });
         } catch (UniqueConstraintViolationException $exception) {
+            if (! $this->isOrderIdempotencyConflict($exception)) {
+                throw $exception;
+            }
+
             $existing = Order::query()
                 ->where('buyer_id', $data->buyerId)
                 ->where('idempotency_key', $data->idempotencyKey)
@@ -95,5 +104,13 @@ final class PurchaseOrder
 
             throw $exception;
         }
+    }
+
+    private function isOrderIdempotencyConflict(UniqueConstraintViolationException $exception): bool
+    {
+        $message = $exception->getMessage();
+
+        return str_contains($message, 'orders_buyer_id_idempotency_key_unique')
+            || str_contains($message, 'orders.buyer_id, orders.idempotency_key');
     }
 }
